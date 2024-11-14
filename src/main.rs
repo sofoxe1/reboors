@@ -1,5 +1,4 @@
 use std::{env, fs, io::stdin, path::PathBuf, process::Command};
-
 use ini::Ini;
 
 
@@ -7,7 +6,6 @@ struct Settings{
     grub:bool,
     initrid:bool,
     yes:bool,
-    force:bool,
 }
 fn main(){
     let mut args: Vec<String> = env::args().skip(1).collect();
@@ -26,8 +24,8 @@ fn main(){
         }
 
     }
-    let mut settings=Settings{grub:false,initrid:false,yes:false,force:false};
-    let conf= Ini::load_from_file("config.ini").unwrap();
+    let mut settings=Settings{grub:false,initrid:false,yes:false};
+    let conf= Ini::load_from_file("/etc/rebootrs/config.ini").unwrap();
     let conf=&conf["General"];
    
     let mut args=args_l.into_iter().chain(args_s.into_iter().map(|x| x.to_string())).collect::<Vec<String>>();
@@ -44,13 +42,9 @@ fn main(){
         }if a=="yes"||a=="y"{
             settings.yes=true;
         }
-        if a=="force"||a=="f"{
-            settings.force=true;
-        }
     }
     
     let targets=conf.get("targets").unwrap().split(',').map(|x| x.to_string()).collect::<Vec<String>>();
-    let current=conf.get("current").unwrap().to_string();
     let postexec=conf.get("postexec");
     let grub_command=conf.get("grub_command").unwrap();
     let initrd_command=conf.get("initrd_command").unwrap();
@@ -69,10 +63,6 @@ fn main(){
             panic!("target not specified");
         }
         target=hit.unwrap();
-    }
-    if !settings.force && current==target{
-        eprint!("already on:{}, use -f to ignore",current);
-        std::process::exit(1);
     }
     let files=conf.get("files").unwrap().split(',').map(|x| PathBuf::from(x)).collect::<Vec<PathBuf>>(); 
     for p in files{
