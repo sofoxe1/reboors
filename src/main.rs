@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, fs, io::stdin, path::PathBuf, process::Command};
 
 use ini::Ini;
 
@@ -12,7 +12,6 @@ struct Settings{
 fn main(){
     let mut args: Vec<String> = env::args().skip(1).collect();
     assert!(args.len()>=1);
-    println!("{:?}",args);
     let mut target=args.swap_remove(0);
     if target.starts_with('-'){
         panic!("first argument can't start with '-'");
@@ -53,14 +52,9 @@ fn main(){
     let targets=conf.get("targets").unwrap().split(',').map(|x| x.to_string()).collect::<Vec<String>>();
     let current=conf.get("current").unwrap().to_string();
     let postexec=conf.get("postexec");
-    let grub_command=conf.get("grub_command");
-    assert!(postexec.is_some() && grub_command.is_some());
-    let reboot:String;
-    if conf.get("reboot").is_some(){
-        reboot=conf.get("reboot").unwrap().to_string();
-    }else {
-        reboot="/sbin/reboot".to_string();
-    }
+    let grub_command=conf.get("grub_command").unwrap();
+    let initrd_command=conf.get("initrd_command").unwrap();
+    let reboot=conf.get("reboot").or(Some("/sbin/reboot")).unwrap();
     let mut hit=None;
     if !targets.contains(&target.to_string()){
         for t in targets{
@@ -81,7 +75,6 @@ fn main(){
         std::process::exit(1);
     }
     let files=conf.get("files").unwrap().split(',').map(|x| PathBuf::from(x)).collect::<Vec<PathBuf>>(); 
-    println!("{}",target);
     for p in files{
         if !p.exists(){
             panic!("{}: doesn't exist",p.to_string_lossy());
@@ -90,32 +83,53 @@ fn main(){
             panic!("{}: is not a file",p.to_string_lossy());
         }
         let mut contet=fs::read_to_string(&p).expect(&format!("failed to read:{}",p.to_string_lossy()));
-        
-        for mut z in contet.as_mut().lines().map(|x| x.to_string()){
+        let mut write=String::new();
+        for z in contet.as_mut().lines().map(|x| x.to_string()){
             let pos=z.find("#rebootrs");
             if pos.is_none(){
+                write.push_str(&z);
+                write.push('\n');
                 continue;
             }
-            // println!("{}",z.chars().skip(pos.unwrap()+"#rebootrs-".len()).collect::<String>().trim());
             if z.chars().skip(pos.unwrap()+"#rebootrs-".len()).collect::<String>().trim()==target{
                 if z.starts_with('#'){
-                    z=z.chars().skip(1).collect::<String>();
+                    write.push_str(&z.chars().skip(1).collect::<String>());
+                }else {
+                    write.push_str(&z);
                 }
 
             }else {
                 if !z.starts_with('#'){
-                    let mut temp:String='#'.to_string();
-                    temp.push_str(z.as_str());
-                    z=temp;
+                    write.push('#');
+                    write.push_str(&z);
+                }else {
+                    write.push_str(&z);
                 }
                
             }
-            println!("{}",z);
+            write.push('\n');
+            
+          
         }
+        fs::write(p,write).unwrap();
     }
-
-
-   
-    
-
+    if settings.grub{
+        let t = Command::new(grub_command.split(" ").take(1).collect::<String>()).args(grub_command.split(" ").skip(1).collect::<Vec<&str>>()).spawn();
+        t.unwrap().wait().unwrap();
+    }
+    if settings.initrid{
+        let t = Command::new(initrd_command.split(" ").take(1).collect::<String>()).args(initrd_command.split(" ").skip(1).collect::<Vec<&str>>()).spawn();
+        t.unwrap().wait().unwrap();
+    }
+    if postexec.is_some(){
+        let postexec=postexec.unwrap();
+        let t = Command::new(postexec.split(" ").take(1).collect::<String>()).args(postexec.split(" ").skip(1).collect::<Vec<&str>>()).spawn();
+        t.unwrap().wait().unwrap();
+    }
+    if !settings.yes{
+        println!("press ENTER to reboot or ctrl+c to cancel");
+        stdin().read_line(&mut String::new()).unwrap();
+        println!("rebooting");
+    }
+    let _ =Command::new(reboot.split(" ").take(1).collect::<String>()).args(reboot.split(" ").skip(1).collect::<Vec<&str>>()).spawn();
 }
